@@ -10,6 +10,8 @@ std::string CounterMetric::getValueAndReset() {
     return std::to_string(_counter.exchange(0));
 }
 
-void CounterMetric::increment() {
-    _counter++;
+void CounterMetric::considerNumber(int value) {
+    if (value % 3 == 0) {
+        _counter++;
+    }
 }

@@ -1,8 +1,7 @@
 add_library(metrics_lib STATIC
-    AverageMetric.cpp
     CounterMetric.cpp
-    UserClickCountMetric.cpp
-    RobotDetectionMetric.cpp
+    CpuPerformanceMetric.cpp
+    MemoryUsageMetric.cpp
 )
 
 target_include_directories(metrics_lib PUBLIC
