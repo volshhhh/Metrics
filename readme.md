@@ -6,28 +6,6 @@
 
 ---
 
-## Структура проекта
-
-```
-vk/
-├── ExampleMetrics/
-│   ├── IMetric.h
-│   ├── CounterMetric.h/.cpp
-│   ├── CpuPerformanceMetric.h/.cpp
-│   ├── MemoryUsageMetric.h/.cpp
-│   └── CMakeLists.txt
-├── MetricUtils/
-│   ├── MetricsWriter.h
-│   ├── MetricWriter.cpp
-│   └── CMakeLists.txt
-├── src/
-│   └── main.cpp
-├── CMakeLists.txt
-└── system_metrics.log
-```
-
----
-
 ## Основные компоненты
 
 ### 1. Интерфейс метрики (`IMetric`)
