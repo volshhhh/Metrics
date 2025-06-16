@@ -1,65 +1,126 @@
-# Система сбора и логирования метрик
+# Система сбора и логирования метрик + детекция «роботов» по частоте кликов
 
-## Описание
-
-Этот проект реализует многопоточную систему сбора, агрегации и логирования различных метрик для приложений на C++. Система поддерживает пользовательские метрики, такие как производительность процессора, использование памяти и подсчёт количества случайных чисел, делящихся на 3.
-
----
-
-## Основные компоненты
-
-### 1. Интерфейс метрики (`IMetric`)
-Базовый интерфейс для всех метрик:
-- `getName()` — возвращает имя метрики.
-- `getValueAndReset()` — возвращает значение и сбрасывает состояние.
-
-### 2. Реализации метрик
-- **CounterMetric** — считает, сколько случайных чисел, сгенерированных в процессе работы программы, делятся на 3. Для этого используется метод `considerNumber(int value)`, который увеличивает счётчик, если число делится на 3.
-- **CpuPerformanceMetric** — измеряет относительную производительность процессора, считая количество математических операций, выполненных за заданный интервал времени.
-- **MemoryUsageMetric** — измеряет текущее использование оперативной памяти процессом.
-
-### 3. MetricsWriter
-Потокобезопасный логгер, который периодически опрашивает все зарегистрированные метрики и пишет их значения в файл `system_metrics.log`.
+## Описание  
+Проект реализует многопоточную систему сбора, агрегации и логирования различных метрик (CPU, память, счётчик чисел, делящихся на 3) и отдельный модуль ClickTracker/RobotCount для детекции «роботов» по частоте кликов. Все метрики реализуют интерфейс `IMetric`, а логика записи вынесена в `MetricUtils/MetricsWriter`.
 
 ---
 
-## Как работает main.cpp
 
-- Создаются и регистрируются метрики: производительность CPU, использование памяти, количество чисел, делящихся на 3.
-- Запускается поток, который каждую 0.05 секунды генерирует случайное число и передаёт его в `CounterMetric`.
-- Логгер каждую секунду записывает значения всех метрик в файл.
-- Программа работает 10 секунд, после чего завершает все потоки.
+## Метрики (`ExampleMetrics`)
+
+- **CounterMetric**  
+  Считает, сколько случайных чисел, генерируемых в main.cpp, делятся на 3 (`considerNumber(int)`).
+
+- **CpuPerformanceMetric**  
+  Проводит синтетический бенчмарк CPU (количество операций sqrt/sin/cos за N ms).
+
+- **MemoryUsageMetric**  
+  Снимает текущее потребление памяти процесса (в МБ).
+
+- **IMetric**  
+  Базовый интерфейс:  
+  ```cpp
+  virtual const std::string& getName() const = 0;
+  virtual std::string getValueAndReset() = 0;
+  ```
 
 ---
 
-## Пример вывода (system_metrics.log)
+## ClickTracker + RobotCount
 
+- **ClickTracker** (`click/ClickTracker.h/.cpp`):  
+  - Ведёт очередь временных меток кликов по пользователям.  
+  - Параметры: `robotInterval` (ms), `robotClicks` (порог кликов за окно).  
+  - При превышении порога банит пользователя и накапливает счётчик новых банов.  
+  - Методы:  
+    - `registerClick(userId)`  
+    - `cntUsers()`, `cntRobots()`  
+    - `getNewlyBannedRobotsAndReset()`
+
+- **RobotCount** (`click/RobotCount.h/.cpp`):  
+  `IMetric`-адаптер: в `getValueAndReset()` вызывает у `ClickTracker` `getNewlyBannedRobotsAndReset()`.
+
+- **RobotCountTest** (`click/RobotCountTest.cpp`):  
+  Симулирует `totalClicks` рандомных пачек кликов по `numUsers`, логирует число новых банов каждую секунду в `robots_detected_per_sec.log` (в корне).
+
+---
+
+## MetricsWriter (`MetricUtils`)
+
+- Конструктор: `(filename, writeInterval_ms)`  
+- `registerMetric(IMetric*)`  
+- `start()` — запуск фона  
+- Каждую секунду (или заданный интервал) опрашивает `getName() + getValueAndReset()` и пишет строку с timestamp:
+
+  ```
+  2025-06-16 12:00:01 "cpu_performance_score" 12345 "memory_usage_mb" 42 "divisible_by_3" 7
+  ```
+
+---
+
+## Пример: `src/main.cpp`
+
+```cpp
+auto counter = std::make_unique<CounterMetric>("divisible_by_3");
+auto cpuPerf = std::make_unique<CpuPerformanceMetric>("cpu_score", 100ms);
+auto mem    = std::make_unique<MemoryUsageMetric>("memory_mb");
+
+MetricsWriter writer("system_metrics.log", 1000ms);
+writer.registerMetric(counter.get());
+writer.registerMetric(cpuPerf.get());
+writer.registerMetric(mem.get());
+writer.start();
+
+// генерация чисел, обновление counter->considerNumber(v);
+// запуск синтетики cpuPerf->startMeasuring();
+// sleep и выход через 10s
 ```
-2025-06-16 12:00:01.123 "cpu_performance_score" 12345 "memory_usage_mb" 42 "divisible_by_3" 7
-2025-06-16 12:00:02.124 "cpu_performance_score" 12401 "memory_usage_mb" 43 "divisible_by_3" 6
-...
+
+При запуске `my_app` в корне появится `system_metrics.log`.
+
+---
+
+## Пример: `click/RobotCountTest.cpp`
+
+```cpp
+auto tracker = make_shared<ClickTracker>(100ms, 5);
+RobotCount robot("robots_detected_per_sec", tracker);
+MetricsWriter writer("robots_detected_per_sec.log", 1000ms);
+writer.registerMetric(&robot);
+writer.start();
+
+// генерируем 500 кликов пачками по 1–15 пользователей, sleep 40–60ms
+// по завершении ждём ещё 2s и exit
 ```
 
----
-
-## Как собрать и запустить
-
-1. **Сборка:**
-   ```sh
-   cmake -S . -B build
-   cmake --build build
-   ```
-
-2. **Запуск:**
-   ```sh
-   ./build/my_app
-   ```
-
-3. **Результат:**  
-   Метрики будут записываться в файл `system_metrics.log` в корне проекта.
+В корне появится `robots_detected_per_sec.log`.
 
 ---
 
-## Как добавить новую метрику
+## Сборка и запуск
 
-1. Реализуйте интерфейс `IMetric` (см. пример в `ExampleMetrics/CounterMetric.h`).
+```bash
+mkdir build
+cmake -S . -B build # из корня
+cmake --build build
+
+# Запуск основной программы:
+./build/my_app
+
+# Запуск теста роботов:
+./build/click/RobotCountLogTest 
+```
+---
+
+## Настройка
+
+- **Порог «робот»**: второй параметр `ClickTracker(robotInterval, robotClicks)`  
+- **Интервал логирования**: в `MetricsWriter(filename, writeInterval_ms)`  
+
+## Добавление новой метрики
+
+1. Наследоваться от `IMetric`.  
+2. Реализовать `getName()` и `getValueAndReset()`.  
+3. Зарегистрировать метрику в `MetricsWriter` или `main.cpp`.  
+
+--- 
