@@ -41,12 +41,12 @@
 
 ## Сборка и запуск
 
-
-1. С корня
+1. Перейдите:
    ```bash
-  ./build/click/RobotCountLogTest
+   cd build/click
+   ./RobotCountLogTest
    ```
-2. В корне появится `robot_metric_test.log` с результатами.
+2. В build/click появится `robot_metric_test.log` с результатами.
 
 ## Настройка
 
