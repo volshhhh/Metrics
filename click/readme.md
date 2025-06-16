@@ -44,7 +44,7 @@
 
 1. С корня
    ```bash
-  ./build/click/RobotCountLogTest 
+  ./build/click/RobotCountLogTest
    ```
 2. В корне появится `robot_metric_test.log` с результатами.
 
